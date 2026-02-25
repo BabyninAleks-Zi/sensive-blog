@@ -3,12 +3,44 @@ from django.urls import reverse
 from django.contrib.auth.models import User
 
 
+class PostQuerySet(models.QuerySet):
+    def year(self, year):
+        return self.filter(published_at__year=year).order_by("published_at")
+
+    def popular(self):
+        return self.annotate(likes_count=models.Count('likes', distinct=True)).order_by('-likes_count')
+
+    def fetch_with_comments_count(self):
+        posts = list(self)
+        post_ids = [post.id for post in posts]
+
+        # В каналах с несколькими связями кастомный менеджер позволяет избежать большого количества запросов,
+        # связанных с объединением с несколькими аннотациями и часто выполняется заметно быстрее.
+        comments_count_by_post_id = {
+            item['id']: item['comments_count']
+            for item in self.model.objects
+            .filter(id__in=post_ids)
+            .annotate(comments_count=models.Count('comments', distinct=True))
+            .values('id', 'comments_count')
+        }
+
+        for post in posts:
+            post.comments_count = comments_count_by_post_id.get(post.id, 0)
+        return posts
+
+
+class TagQuerySet(models.QuerySet):
+    def popular(self):
+        return self.annotate(related_posts_count=models.Count('posts')).order_by('-related_posts_count')
+
+
 class Post(models.Model):
     title = models.CharField('Заголовок', max_length=200)
     text = models.TextField('Текст')
     slug = models.SlugField('Название в виде url', max_length=200)
     image = models.ImageField('Картинка')
-    published_at = models.DateTimeField('Дата и время публикации')
+    published_at = models.DateTimeField("Дата и время публикации")
+    objects = PostQuerySet.as_manager()
 
     author = models.ForeignKey(
         User,
@@ -39,6 +71,7 @@ class Post(models.Model):
 
 class Tag(models.Model):
     title = models.CharField('Тег', max_length=20, unique=True)
+    objects = TagQuerySet.as_manager()
 
     def __str__(self):
         return self.title
@@ -58,6 +91,7 @@ class Tag(models.Model):
 class Comment(models.Model):
     post = models.ForeignKey(
         'Post',
+        related_name='comments',
         on_delete=models.CASCADE,
         verbose_name='Пост, к которому написан')
     author = models.ForeignKey(
