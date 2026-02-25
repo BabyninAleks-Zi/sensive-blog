@@ -7,6 +7,27 @@ class PostQuerySet(models.QuerySet):
     def year(self, year):
         return self.filter(published_at__year=year).order_by("published_at")
 
+    def popular(self):
+        return self.annotate(likes_count=models.Count('likes', distinct=True)).order_by('-likes_count')
+
+    def fetch_with_comments_count(self):
+        posts = list(self)
+        post_ids = [post.id for post in posts]
+
+        # В каналах с несколькими связями это позволяет избежать большого количества запросов,
+        # связанных с объединением с несколькими аннотациями и часто выполняется заметно быстрее.
+        comments_count_by_post_id = {
+            item['id']: item['comments_count']
+            for item in self.model.objects
+            .filter(id__in=post_ids)
+            .annotate(comments_count=models.Count('comments', distinct=True))
+            .values('id', 'comments_count')
+        }
+
+        for post in posts:
+            post.comments_count = comments_count_by_post_id.get(post.id, 0)
+        return posts
+
 
 class TagQuerySet(models.QuerySet):
     def popular(self):
