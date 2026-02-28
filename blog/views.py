@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.http import Http404
 from blog.models import Comment, Post, Tag
 from django.db.models import Count
 
@@ -62,12 +63,15 @@ def index(request):
 
 
 def post_detail(request, slug):
-    post = (
-        Post.objects
-        .fetch_with_author_and_tags()
-        .annotate(likes_count=Count('likes', distinct=True))
-        .get(slug=slug)
-    )
+    try:
+        post = (
+            Post.objects
+            .fetch_with_author_and_tags()
+            .annotate(likes_count=Count('likes', distinct=True))
+            .get(slug=slug)
+        )
+    except Post.DoesNotExist:
+        raise Http404("Пост не найден")
     comments = Comment.objects.filter(post=post).select_related('author')
     serialized_comments = []
     for comment in comments:
@@ -111,7 +115,10 @@ def post_detail(request, slug):
 
 
 def tag_filter(request, tag_title):
-    tag = Tag.objects.get(title=tag_title)
+    try:
+        tag = Tag.objects.get(title=tag_title)
+    except Tag.DoesNotExist:
+        raise Http404("Тег не найден")
 
     most_popular_tags = Tag.objects.popular()[:5]
 
