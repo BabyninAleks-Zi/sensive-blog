@@ -1,6 +1,7 @@
 from django.db import models
 from django.urls import reverse
 from django.contrib.auth.models import User
+from django.db.models import Prefetch
 
 
 class PostQuerySet(models.QuerySet):
@@ -28,10 +29,20 @@ class PostQuerySet(models.QuerySet):
             post.comments_count = comments_count_by_post_id.get(post.id, 0)
         return posts
 
+    def fetch_with_author_and_tags(self):
+        tag_model = self.model._meta.get_field('tags').remote_field.model
+        tags_with_posts_count = tag_model.objects.with_posts_count()
+        return self.select_related('author').prefetch_related(
+            Prefetch('tags', queryset=tags_with_posts_count)
+        )
+
 
 class TagQuerySet(models.QuerySet):
+    def with_posts_count(self):
+        return self.annotate(posts_count=models.Count('posts'))
+
     def popular(self):
-        return self.annotate(posts_count=models.Count('posts')).order_by('-posts_count')
+        return self.with_posts_count().order_by('-posts_count')
 
 
 class Post(models.Model):
